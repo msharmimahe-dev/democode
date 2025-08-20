@@ -166,7 +166,7 @@ export default function UserInfoDisplay() {
   const [recordingTimer, setRecordingTimer] = useState(0)
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null)
 
-  const { presenceData, isConnected } = usePresence(googleUser)
+  const { presenceData, isConnected, totalVisitors } = usePresence(googleUser)
 
   const fetchUserInfo = async () => {
     setLoading(true)
@@ -832,6 +832,7 @@ export default function UserInfoDisplay() {
           users={presenceData.users}
           isConnected={isConnected}
           currentUserId={googleUser?.id}
+          totalVisitors={totalVisitors}
         />
 
         <video ref={videoRef} style={{ display: "none" }} />

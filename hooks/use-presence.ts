@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { supabase, generateVisitorId } from "@/lib/supabase"
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 interface OnlineUser {
   id: string
@@ -30,8 +32,11 @@ export function usePresence(user: GoogleUser | null) {
     users: [],
   })
   const [isConnected, setIsConnected] = useState(false)
+  const [totalVisitors, setTotalVisitors] = useState(0)
   const eventSourceRef = useRef<EventSource | null>(null)
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const visitorChannelRef = useRef<RealtimeChannel | null>(null)
+  const visitorIdRef = useRef<string | null>(null)
 
   // Send presence update to server
   const updatePresence = useCallback(async (userData: GoogleUser) => {
@@ -115,6 +120,60 @@ export function usePresence(user: GoogleUser | null) {
     }
   }, [user])
 
+  // Simple visitor counter using Supabase
+  useEffect(() => {
+    console.log("[Supabase] Starting visitor counter")
+    
+    // Generate unique visitor ID for this session
+    if (!visitorIdRef.current) {
+      visitorIdRef.current = generateVisitorId()
+    }
+
+    // Create visitor counter channel
+    const visitorChannel = supabase.channel('visitor-counter', {
+      config: {
+        presence: {
+          key: visitorIdRef.current,
+        },
+      },
+    })
+
+    visitorChannelRef.current = visitorChannel
+
+    visitorChannel
+      .on('presence', { event: 'sync' }, () => {
+        const presenceState = visitorChannel.presenceState()
+        const visitorCount = Object.keys(presenceState).length
+        setTotalVisitors(visitorCount)
+        console.log('[Supabase] Total visitors:', visitorCount)
+      })
+      .on('presence', { event: 'join' }, () => {
+        const presenceState = visitorChannel.presenceState()
+        const visitorCount = Object.keys(presenceState).length
+        setTotalVisitors(visitorCount)
+      })
+      .on('presence', { event: 'leave' }, () => {
+        const presenceState = visitorChannel.presenceState()
+        const visitorCount = Object.keys(presenceState).length
+        setTotalVisitors(visitorCount)
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await visitorChannel.track({ 
+            visitor_id: visitorIdRef.current,
+            joined_at: new Date().toISOString() 
+          })
+        }
+      })
+
+    return () => {
+      if (visitorChannelRef.current) {
+        visitorChannelRef.current.untrack()
+        visitorChannelRef.current.unsubscribe()
+      }
+    }
+  }, [])
+
   // Start heartbeat when user is signed in
   useEffect(() => {
     if (user) {
@@ -181,12 +240,17 @@ export function usePresence(user: GoogleUser | null) {
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
       }
+      if (visitorChannelRef.current) {
+        visitorChannelRef.current.untrack()
+        visitorChannelRef.current.unsubscribe()
+      }
     }
   }, [])
 
   return {
     presenceData,
     isConnected,
+    totalVisitors,
     updatePresence: () => user && updatePresence(user),
   }
 }
